@@ -3,7 +3,7 @@
 #
 # 5/11/2019
 #
-# Credits: This script is based on Johno's "Dynamic Air Patrol" script.  It has been heavily modified with many added features, but he had the initial idea that inspired this project.
+# Credits: This script is based on John's "Dynamic Air Patrol" script.  It has been heavily modified with many added features, but he had the initial idea that inspired this project.
 
 -=> What is this script?
 This script runs a server side event that simulates a patrol craft being shot down and a rescue mission to recover the pilots.  It runs on server start, waits 10 - 12  minutes,
