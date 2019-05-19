@@ -15,6 +15,11 @@ If the patrol craft crashes into water, it is deemed lost and no QRF force is la
 a resuce mission is launched.
 
 -=> Features
+	(Version 1.1)
+	- Script will now auto clean markers and old mission site once a player jumps in the helicoper
+	- Script now runs continuously 
+	- Optimimzed some code
+	(Version 1.0)
 	- Offers a highly randomized mission and experience
 	- Can be easily customized for any custom content or equipment/vehicle mod
 	- Should work on any map
