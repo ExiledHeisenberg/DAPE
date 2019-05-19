@@ -1,14 +1,15 @@
 /** DYNAMIC AIR PATROL EVENT by TheOneWhoKnocks **/
-// Version 1.0
+// Version 1.1
 // Originally inspired by johno's Dynamic Air Patrol script
 // Modified to include make event run until a chopper event runs, fixed several issues, and enhance overall script
 // 4/20/18
-// 5/10/2109 - Significant changes and complete overhaul  First release
+// 5/10/2019 - Significant changes and complete overhaul  First release
+// 5/18/2019 - Added marker cleanup and ,ade it so script repeats after heli is cleared.  Code optimizations
 diag_log "[DAPE] Ambient air patrol engaged";
  
 if (!isServer) exitWith{};
  
-private ["_rescueChopperRun","_waypoint1","_waypoint2","_waypoint3","_waypoint4","_patrolAirplanes","_crashType","_chosenTarget","_chosenTargetName","_interceptorPlanes","_markerWaypointOne","_markerWaypointTwo","_markerWaypointThree","_markerWayPointFour","_wayPointOne","_wayPointTwo","_wayPointThree","_wayPointFour","_mk","_pos","_interceptor","_interceptorAircraft"];
+private ["_cleanupObjects","_rescueChopperRun","_waypoint1","_waypoint2","_waypoint3","_waypoint4","_patrolAirplanes","_crashType","_chosenTarget","_chosenTargetName","_interceptorPlanes","_markerWaypointOne","_markerWaypointTwo","_markerWaypointThree","_markerWayPointFour","_wayPointOne","_wayPointTwo","_wayPointThree","_wayPointFour","_mk","_pos","_interceptor","_interceptorAircraft"];
  
  
 /************************************************************************************************/
@@ -45,6 +46,8 @@ _debug = false; // Will create a marker that will follow the aircraft
 _useMarkerWaypoints = false; 
 // If true, will use fixed locations instead of random positions.  
 // If false, you system will generate four waypoints around the map
+
+_cleanupObjects = [];
 
 if (_debug) then
 {
@@ -136,8 +139,6 @@ if (_debug) then
 
 //diag_log format ["[DAPE] IntStartpos : %1",_interceptorStartPos];
 
-
-//_interceptorExitPos = _rescueStartPos call BIS_fnc_selectRandom;
 _interceptorExitPos = [_spawnCenter, (worldSize * 0.75), -1, 5, 2] call BIS_fnc_findSafePos ;	// Tries to find a location over the water so they don't just appear out of nowhere
 
 if (_debug) then
@@ -377,11 +378,14 @@ if 	(_JetsDLC) then
 	_interceptorPlanes append _jetsInterceptorPlanes;
 };
 	
-_rescueChopperRun = false;
+// Mission initialization
+
+_side = createCenter EAST;
 
 
 //Setup Loop logic so it runs this script until the rescue operation can run (Accounts for crashes at sea and runs again if no rescue chopper flies
-while {!_rescueChopperRun} do 
+//while {!_rescueChopperRun} do 
+while {true} do 
 {
 	//diag_log "[DAPE} Loop starting";
 	// Randomize the start time of the script
@@ -392,22 +396,19 @@ while {!_rescueChopperRun} do
 	}
 	else
 	{    
-		uiSleep 600; // Do not start for 10 minutes.
+		uiSleep 300; // Wait for 5 minutes from beginning of script minutes.
 	 
-		_randomStartTime = floor (random 1200); // Continue the delayed start for a random time between 0 and 20 minutes
+		_randomStartTime = floor (random 600); // Continue the delayed start for a random time between 0 and 10 minutes
 		uiSleep _randomStartTime;
 	};
 	 
-	_side = createCenter EAST;
 	
 	_chosenTarget = _patrolAirplanes call BIS_fnc_selectRandom;
 	_chosenTargetName = getText (configfile >> "CfgVehicles" >> _chosenTarget >> "displayName");
 	
-	_patrolGroup = createGroup EAST;
-	[_startPos, 180,_chosenTarget, _patrolGroup] call BIS_fnc_spawnVehicle;
-
-	_airCraftSelection = nearestObjects [_startPos, ["air"], 100];
-	_airCraftLead = _airCraftSelection select 0;
+	_patrolGroup = createGroup [EAST,true];
+	_spawnedPatrol = [_startPos, 180,_chosenTarget, _patrolGroup] call BIS_fnc_spawnVehicle;
+	_airCraftLead = _spawnedPatrol select 0;
 		
 	[driver _airCraftLead ] joinSilent _patrolGroup;
 
@@ -442,14 +443,10 @@ while {!_rescueChopperRun} do
 	 
 	_patrolGroup setCombatMode "BLUE";
 	 
-	{
-		_x disableAI "AUTOTARGET";
-		_x disableAI "TARGET";
-		_x disableAI "SUPPRESSION";
-		//_x forceSpeed 400;
+	_airCraftLead disableAI "AUTOTARGET";
+	_airCraftLead disableAI "TARGET";
+	_airCraftLead disableAI "SUPPRESSION";
 
-	   
-	} forEach units _patrolGroup;
 	 
 	_wp1 = _patrolGroup addWaypoint [_wayPointOne, 500];
 	_wp1 setWaypointType "MOVE";
@@ -487,15 +484,13 @@ while {!_rescueChopperRun} do
 	};
 	
 	diag_log "[DAPE] Intercept aircraft dispatched";
-	_interceptor = createGroup resistance;
+	_interceptor = createGroup [resistance,true];
 	_interceptorChoice = _interceptorPlanes call BIS_fnc_selectRandom;
 	_interceptorName = getText (configfile >> "CfgVehicles" >> _interceptorChoice >> "displayName");
    
-   
-	[_interceptorStartPos, 180,_interceptorChoice, _interceptor] call BIS_fnc_spawnVehicle;
-	_interceptorSelection = nearestObjects [_interceptorStartPos, ["air"], 100];
- 
-	_interceptorAircraft = _interceptorSelection select 0;
+	_spawnedInterceptor = [_interceptorStartPos, 180,_interceptorChoice, _interceptor] call BIS_fnc_spawnVehicle;
+	_interceptorAircraft = _spawnedInterceptor select 0;
+	
 	
 	[driver _interceptorAircraft ] joinSilent _interceptor;
 	//diag_log format ["[DAPE] Interceptor Pos: %1", getPosASL _interceptorAircraft];
@@ -509,13 +504,13 @@ while {!_rescueChopperRun} do
    
 	_waypoints = [_wayPointFour,_wayPointThree,_wayPointTwo,_wayPointOne];
 	{
-	_intWP = _interceptor addWaypoint [_x, 0];
+	_intWP = _interceptor addWaypoint [_x, 500];
 	_intWP setWaypointType "MOVE";
 	_intWP setWaypointBehaviour "SAFE";
 	_intWP setWaypointspeed "NORMAL";
 	} forEach _waypoints;
 	
-	_intWP = _interceptor addWaypoint [_wayPointFour, 0];
+	_intWP = _interceptor addWaypoint [_wayPointFour, 500];
 	_intWP setWaypointType "CYCLE";
 	_intWP setWaypointBehaviour "SAFE";
 	_intWP setWaypointspeed "NORMAL";
@@ -614,10 +609,9 @@ while {!_rescueChopperRun} do
 		["toastRequest", ["InfoTitleAndText", [_titleQRF, _messageQRF]]] call ExileServer_system_network_send_broadcast;
 	 
 		["systemChatRequest", [format ["%1: %2",_titleQRF,_messageQRF]]] call ExileServer_system_network_send_broadcast;
-		
-		_rescueChopperRun = true; //Since chopper mission is now running, exit loop when done
-	 
-		_landPos = position _airCraftLead;
+			 
+		_landPos = _airCraftLead getPos [50, (random 360)];
+
 		{ _x hideObjectGlobal true } foreach (nearestTerrainObjects [_landPos,["TREE", "SMALL TREE", "BUSH"],40]);
 	 
 		_helipad = "Land_HelipadEmpty_F" createVehicle _landPos;
@@ -629,16 +623,23 @@ while {!_rescueChopperRun} do
 		_smoke = createVehicle ["test_EmptyObjectForSmoke",position _crash,[], 0, "can_collide"];
 		_smoke attachTo [_crash, [0.5, -2, 1] ];
 		
-	 	_rescueCrew = createGroup EAST;
+		_cleanupObjects = [_crash,_smoke];
+		
+	 	_rescueCrew = createGroup [EAST,true];
 	 		
 		_lootHeli = _rescueHelis call BIS_fnc_selectRandom;
-		[_startPos, 180, _lootHeli, _rescueCrew] call BIS_fnc_spawnVehicle;
 
-		_rescueSelection = nearestObjects [_startPos, ["air"], 100];
-		_chopper = _rescueSelection select 0;
+		_spawnRescue = [_startPos, 180, _lootHeli, _rescueCrew] call BIS_fnc_spawnVehicle;
+		_chopper = _spawnRescue select 0;
 		
 		[driver _chopper ] joinSilent _rescueCrew;
+		
+		_chopper setVariable ["GONE",false];
 
+		
+		_chopper addEventHandler ["GetIn",{	params ["_vehicle", "_role", "_unit", "_turret"];if (isPlayer _unit) then {_vehicle setVariable ["GONE",true];};}];
+		_chopper addMPEventHandler ["MPKilled",{params ["_vehicle", "_unit"];_vehicle setVariable ["GONE",true];}];
+		
 		
 	 	//diag_log format ["[DAPE] Chopper Pos: %1", getPosASL _chopper];
 
@@ -718,6 +719,7 @@ while {!_rescueChopperRun} do
 		_aiUnits = ["O_G_Soldier_TL_F", "O_G_medic_F","O_G_Soldier_F","O_G_Soldier_AR_F"];
 	 
 		_HeliAiUnits = [(getPos _chopper), EAST, _aiUnits,[],[],[0.5,0.9],[],[],(random 360)] call BIS_fnc_spawnGroup;
+		_HeliAiUnits deleteGroupWhenEmpty true;
 		//Add waypoint for the AI
 		_HeliCrashGroupLeader = leader _HeliAiUnits;
 		_HeliCrashUnitsGroup = group _HeliCrashGroupLeader;
@@ -745,7 +747,7 @@ while {!_rescueChopperRun} do
 		_heli_marker setMarkerText "Rescue Mission";
 		_heli_marker setMarkerType "o_air";
 		_heli_marker setMarkerBrush "Vertical";
-		_heli_marker setMarkerSize [(1.5), (1.5)];
+		_heli_marker setMarkerSize [(1.25), (1.25)];
 		
 		sleep 60;
 		
@@ -757,7 +759,39 @@ while {!_rescueChopperRun} do
 			_object = (_x select 0) createVehicle ((_x select 1) getPos [5, (random 360)]);
 			_object enableSimulationGlobal ((_x select 3) select 0);
 			_object allowDamage ((_x select 3) select 1);
+			_object setDir (random 360);
+			_cleanupObjects pushBack _object;
 		} forEach _objects;
+		
+		while {!(_chopper getVariable "GONE")} do {sleep 60};
+		
+		diag_log ["[DAPE] Heli taken, cleaning up mission"];
+		
+		deleteMarker "DAPE_Marker";
+		
+		if (_debug) then
+		{
+			deleteMarker "E";
+			deleteMarker "Y";
+			deleteMarker "AirCraftLocation";
+			deleteMarker "crashpos";
+		};
+		
+		sleep 300; // Wait 5 minutes and then clean up remnants
+
+		{
+			deleteVehicle _x;
+		} forEach _cleanupObjects;
+		
+		{
+			deleteVehicle _x;
+		} forEach units _rescueCrew;
+		
+		{
+			deleteVehicle _x;
+		} forEach units _HeliAiUnits;
+		
+		deleteVehicle _airCraftLead;
 	}
 	else
 	{
@@ -773,5 +807,5 @@ while {!_rescueChopperRun} do
 		deleteMarker "Y";
 		deleteMarker "AirCraftLocation";
 		deleteMarker "crashpos";
-		};
+	};
 };
