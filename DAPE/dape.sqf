@@ -1,16 +1,83 @@
 /** DYNAMIC AIR PATROL EVENT by TheOneWhoKnocks **/
-// Version 1.1
+// Version 1.2
 // Originally inspired by johno's Dynamic Air Patrol script
 // Modified to include make event run until a chopper event runs, fixed several issues, and enhance overall script
 // 4/20/18
 // 5/10/2019 - Significant changes and complete overhaul  First release
-// 5/18/2019 - Added marker cleanup and ,ade it so script repeats after heli is cleared.  Code optimizations
+// 5/18/2019 - Added marker cleanup and made it so script repeats after heli is cleared.  Code optimizations
+// 5/21/2019 - Added option to disable interceptor, added money to AI pockets, added more clean up code
+// 5/22/2019 - Added option to make heli persistent
+
 diag_log "[DAPE] Ambient air patrol engaged";
  
 if (!isServer) exitWith{};
  
 private ["_cleanupObjects","_rescueChopperRun","_waypoint1","_waypoint2","_waypoint3","_waypoint4","_patrolAirplanes","_crashType","_chosenTarget","_chosenTargetName","_interceptorPlanes","_markerWaypointOne","_markerWaypointTwo","_markerWaypointThree","_markerWayPointFour","_wayPointOne","_wayPointTwo","_wayPointThree","_wayPointFour","_mk","_pos","_interceptor","_interceptorAircraft"];
+
+/************************************************************************************************/
+/** Script Config parameters ********************************************************************/
+/************************************************************************************************/
+
+_eastSide = createCenter east;
+_westSide = createCenter west;
+_guerSide = createCenter resistance;
+
+_interceptorPresent = true;		// TRUE - Interceptor launches and shoots down patrol | FALSE - Only patrol plane flies (Either way, land crash will generate rescure craft)
+_AIMoney = 500;					// Max amount of money in AI pockets
+_lootHeliPersist = false;		// TRUE - Vehicle is persistant and uses code defined below | FALSE - vehicle is not persistant
+
+_pincode = floor (random 9999);
+
+switch (true) do
+		{
+			case (_pinCode<10):
+			{
+				_pinCode = format ["000%1",_pinCode];
+			};
+
+			case (_pinCode<100):
+			{
+				_pinCode = format ["00%1",_pinCode];
+			};
+
+			case (_pinCode<1000):
+			{
+				_pinCode = format ["0%1",_pinCode];
+			};
+
+			default
+			{
+				_pinCode = str _pinCode;
+			};
+		};
+
+_cleanupObjects = [];
+
+
+
+// This code is NECESSARY for spawning persistent vehicles. DO NOT REMOVE THIS CODE UNLESS YOU KNOW WHAT YOU ARE DOING
+if !("isKnownAccount:FuMS_PersistentVehicle" call ExileServer_system_database_query_selectSingleField) then
+{
+	"createAccount:FuMS_PersistentVehicle:FuS_PersistentVehicle" call ExileServer_system_database_query_fireAndForget;
+};
+
+
+/************************************************************************************************/
+/** DEBUG MARKER ********************************************************************************/
+/** Turns on markers that show event activity ***************************************************/
+/** Also shortens mission for testing ***********************************************************/
+/************************************************************************************************/
  
+_debug = false; // Will create a marker that will follow the aircraft
+ 
+
+
+/************************************************************************************************/
+/** DLC Content  ********************************************************************************/
+/************************************************************************************************/
+_APEXDLC = true; //Set to true to enable APEX content
+_JetsDLC = true; //Set to true to enable Jets content
+
  
 /************************************************************************************************/
 /** Random location settings ********************************************************************/
@@ -24,20 +91,6 @@ _mindist = 0; // minimum distance from the nearest object (Number) in meters, ie
 _water = 0; // water mode 0: cannot be in water , 1: can either be in water or not , 2: must be in water
 _shoremode = 0; // 0: does not have to be at a shore , 1: must be at a shore
 
-/************************************************************************************************/
-/** DLC Content  ********************************************************************************/
-/************************************************************************************************/
-_APEXDLC = true; //Set to true to enable APEX content
-_JetsDLC = true; //Set to true to enable Jets content
-
- 
-/************************************************************************************************/
-/** DEBUG MARKER ********************************************************************************/
-/** Turns on markers that show event activity ***************************************************/
-/** Also shortens mission for testing ***********************************************************/
-/************************************************************************************************/
- 
-_debug = false; // Will create a marker that will follow the aircraft
  
 /************************************************************************************************/
 /** GENERATE WAYPOINTS **************************************************************************/
@@ -47,7 +100,7 @@ _useMarkerWaypoints = false;
 // If true, will use fixed locations instead of random positions.  
 // If false, you system will generate four waypoints around the map
 
-_cleanupObjects = [];
+
 
 if (_debug) then
 {
@@ -377,14 +430,8 @@ if 	(_JetsDLC) then
 	_patrolAirplanes append _JetsPatrolAirplanes;
 	_interceptorPlanes append _jetsInterceptorPlanes;
 };
-	
-// Mission initialization
-
-_side = createCenter EAST;
-
 
 //Setup Loop logic so it runs this script until the rescue operation can run (Accounts for crashes at sea and runs again if no rescue chopper flies
-//while {!_rescueChopperRun} do 
 while {true} do 
 {
 	//diag_log "[DAPE} Loop starting";
@@ -427,12 +474,12 @@ while {true} do
 		{
 			_planes = _this select 0;
 			_pos = position _planes;
-			_mk = createMarker ["AirCraftLocation",_pos];
+			_mk = createMarker ["PatrolMarker",_pos];
 			while {alive _planes} do
 			{
 				_pos = position _planes;
-				"AirCraftLocation" setMarkerType "mil_warning";
-				"AirCraftLocation" setMarkerText "Patrol";
+				"PatrolMarker" setMarkerType "mil_warning";
+				"PatrolMarker" setMarkerText "Patrol";
 				_mk setMarkerPos _pos;
 				uiSleep 1;
 			};  
@@ -483,64 +530,71 @@ while {true} do
 		uiSleep 600;
 	};
 	
-	diag_log "[DAPE] Intercept aircraft dispatched";
-	_interceptor = createGroup [resistance,true];
-	_interceptorChoice = _interceptorPlanes call BIS_fnc_selectRandom;
-	_interceptorName = getText (configfile >> "CfgVehicles" >> _interceptorChoice >> "displayName");
-   
-	_spawnedInterceptor = [_interceptorStartPos, 180,_interceptorChoice, _interceptor] call BIS_fnc_spawnVehicle;
-	_interceptorAircraft = _spawnedInterceptor select 0;
-	
-	
-	[driver _interceptorAircraft ] joinSilent _interceptor;
-	//diag_log format ["[DAPE] Interceptor Pos: %1", getPosASL _interceptorAircraft];
+	/////////////////////////////////////////////////////////
+	/// Interceptor Code  ///////////////////////////////////
+	/////////////////////////////////////////////////////////
 
-   
-	_interceptor setCombatMode "RED";
-	_interceptorAircraft allowDamage false;
-	_interceptorAircraft setCaptive true;
-	_interceptorAircraft forceSpeed 400;
-	_interceptorAircraft reveal _airCraftLead;
-   
-	_waypoints = [_wayPointFour,_wayPointThree,_wayPointTwo,_wayPointOne];
+	if (_interceptorPresent) then
 	{
-	_intWP = _interceptor addWaypoint [_x, 500];
-	_intWP setWaypointType "MOVE";
-	_intWP setWaypointBehaviour "SAFE";
-	_intWP setWaypointspeed "NORMAL";
-	} forEach _waypoints;
-	
-	_intWP = _interceptor addWaypoint [_wayPointFour, 500];
-	_intWP setWaypointType "CYCLE";
-	_intWP setWaypointBehaviour "SAFE";
-	_intWP setWaypointspeed "NORMAL";
- 
-	if (_debug) then
-	{    
-		[_interceptorAircraft] spawn
+		diag_log "[DAPE] Intercept aircraft dispatched";
+		_interceptor = createGroup [resistance,true];
+		_interceptorChoice = _interceptorPlanes call BIS_fnc_selectRandom;
+		_interceptorName = getText (configfile >> "CfgVehicles" >> _interceptorChoice >> "displayName");
+	   
+		_spawnedInterceptor = [_interceptorStartPos, 180,_interceptorChoice, _interceptor] call BIS_fnc_spawnVehicle;
+		_interceptorAircraft = _spawnedInterceptor select 0;
+		
+		
+		[driver _interceptorAircraft ] joinSilent _interceptor;
+		//diag_log format ["[DAPE] Interceptor Pos: %1", getPosASL _interceptorAircraft];
+
+	   
+		_interceptor setCombatMode "RED";
+		_interceptorAircraft allowDamage false;
+		_interceptorAircraft setCaptive true;
+		_interceptorAircraft forceSpeed 400;
+		_interceptorAircraft reveal _airCraftLead;
+	   
+		_waypoints = [_wayPointFour,_wayPointThree,_wayPointTwo,_wayPointOne];
 		{
-			_plane2 = _this select 0;
-			_pos2 = position _plane2;
-			_mk1 = createMarker ["Y",_pos2];
-			while {alive _plane2} do
-			{    
+		_intWP = _interceptor addWaypoint [_x, 500];
+		_intWP setWaypointType "MOVE";
+		_intWP setWaypointBehaviour "SAFE";
+		_intWP setWaypointspeed "NORMAL";
+		} forEach _waypoints;
+		
+		_intWP = _interceptor addWaypoint [_wayPointFour, 500];
+		_intWP setWaypointType "CYCLE";
+		_intWP setWaypointBehaviour "SAFE";
+		_intWP setWaypointspeed "NORMAL";
+	 
+		if (_debug) then
+		{    
+			[_interceptorAircraft] spawn
+			{
+				_plane2 = _this select 0;
 				_pos2 = position _plane2;
-				"Y" setMarkerType "mil_warning";
-				"Y" setMarkerText "Intercept";
-				_mk1 setMarkerPos _pos2;
-				uiSleep 1;
-			};
-		};  
-	};
+				_mk1 = createMarker ["InterceptorMarker",_pos2];
+				while {alive _plane2} do
+				{    
+					_pos2 = position _plane2;
+					"InterceptorMarker" setMarkerType "mil_warning";
+					"InterceptorMarker" setMarkerText "Intercept";
+					_mk1 setMarkerPos _pos2;
+					uiSleep 1;
+				};
+			};  
+		};
+	
+		_counter = 0;
 
-	_counter = 0;
-
-	// Patrol will fly around for 10 minutes, then blow up by itself unless the interceptor shoots it down first
-	// Adjust the counter for number of minutes for interceptor to destroy it
-	while {(_counter < 10) && (alive _airCraftLead)} do
-	{
-		sleep 60;
-		_counter = _counter + 1;
+		// Patrol will fly around for 10 minutes, then blow up by itself unless the interceptor shoots it down first
+		// Adjust the counter for number of minutes for interceptor to destroy it
+		while {(_counter < 20) && (alive _airCraftLead)} do
+		{
+			sleep 30;
+			_counter = _counter + 1;
+		};
 	};
 	
 	_titlePatrol = "MAYDAY";
@@ -558,35 +612,38 @@ while {true} do
 	}; 			
  
 	//diag_log "[DAPE] Waiting for crash"; 
-	while {(getPos _airCraftLead select 2) > 5} do { sleep 5};
+	while {(getPos _airCraftLead select 2) > 5} do { sleep 15};
 	//diag_log "[DAPE] Crash detected"; 
-	
-	while {(count (waypoints _interceptor)) > 0} do
+
+	if (_interceptorPresent) then
 	{
-		deleteWaypoint ((waypoints _interceptor) select 0);
+		while {(count (waypoints _interceptor)) > 0} do
+		{
+			deleteWaypoint ((waypoints _interceptor) select 0);
+		};
+
+		//diag_log "[DAPE] Interceptor -- Remaining offensive waypoints deleted";
+
+		_intExitWP = _interceptor addWaypoint [_interceptorExitPos, 0];
+		_intExitWP setWaypointType "MOVE";
+		_intExitWP setWaypointBehaviour "CARELESS";
+		_intExitWP setWaypointspeed "NORMAL";
+	   
+		_interceptor setCombatMode "BLUE";
+	   
+		{
+		_x disableAI "AUTOTARGET";
+		_x disableAI "TARGET";
+		_x disableAI "SUPPRESSION";
+	   
+		} forEach units _interceptor;
+	   
+		//diag_log "[DAPE] Interceptor Aircraft dismiss order initiated";
 	};
-
-	//diag_log "[DAPE] Interceptor -- Remaining offensive waypoints deleted";
-
-	_intExitWP = _interceptor addWaypoint [_interceptorExitPos, 0];
-	_intExitWP setWaypointType "MOVE";
-	_intExitWP setWaypointBehaviour "CARELESS";
-	_intExitWP setWaypointspeed "NORMAL";
-   
-	_interceptor setCombatMode "BLUE";
-   
-	{
-	_x disableAI "AUTOTARGET";
-	_x disableAI "TARGET";
-	_x disableAI "SUPPRESSION";
-   
-	} forEach units _interceptor;
-   
-	//diag_log "[DAPE] Interceptor Aircraft dismiss order initiated";
 	
 	if (_debug) then
 	{
-		private _crashPoint = createMarker ["crashpos", (position _airCraftLead)	];  
+		private _crashPoint = createMarker ["CrashMarker", (position _airCraftLead)	];  
 
 		_crashPoint setMarkerType "hd_join";
 		_crashPoint setMarkerText "Crash";
@@ -602,7 +659,6 @@ while {true} do
 	{
 		//diag_log "[DAPE] Aircraft Patrol -- Crash recovey sequence initiated";
 	 
-		_westSide = createCenter west;
 		_titleQRF = "WARNING";
 		_messageQRF = "A Quick Reaction Force has been dispatched to secure the crash site.  Do not approach or you will be fired on.";
 		
@@ -618,12 +674,12 @@ while {true} do
 		sleep 10;
 	 
 		_crash = createVehicle ["test_EmptyObjectForFireBig",_landPos,[], 0, "can_collide"];
-		_crash setPos [position _crash select 0,position _crash select 1, 0.1];
+		_crash setPos [position _airCraftLead select 0,position _airCraftLead select 1, 0.1];
 		_crash setVectorUp surfaceNormal position _crash;
-		_smoke = createVehicle ["test_EmptyObjectForSmoke",position _crash,[], 0, "can_collide"];
+		_smoke = createVehicle ["test_EmptyObjectForSmoke",position _airCraftLead,[], 0, "can_collide"];
 		_smoke attachTo [_crash, [0.5, -2, 1] ];
 		
-		_cleanupObjects = [_crash,_smoke];
+		_cleanupObjects = [_helipad,_crash,_smoke];
 		
 	 	_rescueCrew = createGroup [EAST,true];
 	 		
@@ -634,11 +690,26 @@ while {true} do
 		
 		[driver _chopper ] joinSilent _rescueCrew;
 		
+		_chopper setFuel (0.75+(random 0.25));
 		_chopper setVariable ["GONE",false];
-
+		_chopper setVariable ["ExileMoney",0,true];
+		_chopper setVariable ["ExileIsPersistent", false];
+		_chopper enableRopeAttach false;
 		
 		_chopper addEventHandler ["GetIn",{	params ["_vehicle", "_role", "_unit", "_turret"];if (isPlayer _unit) then {_vehicle setVariable ["GONE",true];};}];
 		_chopper addMPEventHandler ["MPKilled",{params ["_vehicle", "_unit"];_vehicle setVariable ["GONE",true];}];
+		
+		if (_lootHeliPersist) then
+		{
+			_chopper setVariable ["ExileIsPersistent", true];
+			_chopper setVariable ["ExileAccessCode", _pinCode];
+			_chopper setVariable ["ExileOwnerUID", "FuMS_PersistentVehicle"];
+			_chopper setVariable ["ExileIsLocked",-1];
+			_chopper lock 0;
+			_chopper call ExileServer_object_vehicle_database_insert;
+			_chopper call ExileServer_object_vehicle_database_update;
+			
+		};	
 		
 		
 	 	//diag_log format ["[DAPE] Chopper Pos: %1", getPosASL _chopper];
@@ -650,12 +721,12 @@ while {true} do
 			{
 				_chopper1 = _this select 0;
 				_pos3 = position _chopper1;
-				_mk2 = createMarker ["E",_pos3];
+				_mk2 = createMarker ["HeliMarker",_pos3];
 				while {alive _chopper1} do
 				{    
 					_pos3 = position _chopper1;
-					"E" setMarkerType "mil_warning";
-					"E" setMarkerText "Rescue";
+					"HeliMarker" setMarkerType "mil_warning";
+					"HeliMarker" setMarkerText "Rescue";
 					_mk2 setMarkerPos _pos3;
 					sleep 1;
 				};
@@ -671,7 +742,7 @@ while {true} do
 		_rescueWP1 setWaypointBehaviour "CARELESS";
 		_rescueWP1 setWaypointspeed "FULL";
 	 
-	 // The loot is the chopper itself, but this adds loot from tables above 
+		// The loot is the chopper itself, but this adds loot from tables above 
 
 		clearMagazineCargoGlobal _chopper;
 		clearWeaponCargoGlobal _chopper;
@@ -704,6 +775,7 @@ while {true} do
 			removeAllWeapons _x;
 			_curWeapon = _lootWeapons call BIS_fnc_selectRandom;
 			[_x,_curWeapon, 5] call BIS_fnc_addWeapon;
+			_x setVariable ["ExileMoney",(floor random _AIMoney),true];
 		} forEach units _rescueCrew;
 		
 		_rescueCrew setCombatMode "RED";
@@ -724,8 +796,6 @@ while {true} do
 		_HeliCrashGroupLeader = leader _HeliAiUnits;
 		_HeliCrashUnitsGroup = group _HeliCrashGroupLeader;
 		
-		//_HeliAiUnits joinSilent (group _HeliCrashGroupLeader);
-
 	 
 		//  This will remove the gear of the units above and add weapons from the defined loot table above
 		{
@@ -733,6 +803,7 @@ while {true} do
 			removeAllWeapons _x;
 			_curWeapon = _lootWeapons call BIS_fnc_selectRandom;
 			[_x,_curWeapon, 5] call BIS_fnc_addWeapon;
+			_x setVariable ["ExileMoney",(floor random _AIMoney),true];
 		} forEach units _HeliAiUnits;
 	 
 		_HeliAIUnits allowFleeing 0;
@@ -760,21 +831,37 @@ while {true} do
 			_object enableSimulationGlobal ((_x select 3) select 0);
 			_object allowDamage ((_x select 3) select 1);
 			_object setDir (random 360);
+			_object setVectorUp (surfaceNormal (position _object));
 			_cleanupObjects pushBack _object;
 		} forEach _objects;
 		
-		while {!(_chopper getVariable "GONE")} do {sleep 60};
+		while {!(_chopper getVariable "GONE")} do {sleep 10};
 		
-		diag_log ["[DAPE] Heli taken, cleaning up mission"];
+		
+		_titleWin = "CONGRATS!";
+		_messageWin = "The rescue heli has been stolen!";
+
+	
+		if (_lootHeliPersist) then
+		{
+			_messageWin = ["The rescue heli has been stolen! The PIN is ",_pincode] joinString "";
+		};
+		
+		diag_log format ["[DAPE] Heli taken, cleaning up mission| Persist:%1 | _messageWin:%2, | _pincode:%3",_lootHeliPersist,_messageWin,_pincode];
+		
+		["toastRequest", ["SuccessTitleAndText", [_titleWin, _messageWin]]] call ExileServer_system_network_send_broadcast;
+	 
+		["systemChatRequest", [format ["%1: %2",_titleWin,_messageWin]]] call ExileServer_system_network_send_broadcast;
+		
 		
 		deleteMarker "DAPE_Marker";
 		
 		if (_debug) then
 		{
-			deleteMarker "E";
-			deleteMarker "Y";
-			deleteMarker "AirCraftLocation";
-			deleteMarker "crashpos";
+			deleteMarker "HeliMarker";
+			deleteMarker "InterceptorMarker";
+			deleteMarker "PatrolMarker";
+			deleteMarker "CrashMarker";
 		};
 		
 		sleep 300; // Wait 5 minutes and then clean up remnants
@@ -800,12 +887,17 @@ while {true} do
 	};
 	 
 	uiSleep 120;
-	 
-	deleteVehicle _interceptorAircraft;
+	
+	if (_interceptorPresent) then
+	{
+		deleteVehicle _interceptorAircraft;
+	};
+	
 	if (_debug) then
 	{
-		deleteMarker "Y";
-		deleteMarker "AirCraftLocation";
-		deleteMarker "crashpos";
+
+		deleteMarker "PatrolMarker";
+		deleteMarker "CrashMarker";
+		if (_interceptorPresent) then {deleteMarker "InterceptorMarker";};
 	};
 };
