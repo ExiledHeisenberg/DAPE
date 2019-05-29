@@ -1,5 +1,5 @@
 /** DYNAMIC AIR PATROL EVENT by TheOneWhoKnocks **/
-// Version 1.2
+// Version 1.3
 // Originally inspired by johno's Dynamic Air Patrol script
 // Modified to include make event run until a chopper event runs, fixed several issues, and enhance overall script
 // 4/20/18
@@ -7,12 +7,13 @@
 // 5/18/2019 - Added marker cleanup and made it so script repeats after heli is cleared.  Code optimizations
 // 5/21/2019 - Added option to disable interceptor, added money to AI pockets, added more clean up code
 // 5/22/2019 - Added option to make heli persistent
+// 5/29/2019 - Moved code to make heli persistent only after it's been captured
 
 diag_log "[DAPE] Ambient air patrol engaged";
  
 if (!isServer) exitWith{};
  
-private ["_cleanupObjects","_rescueChopperRun","_waypoint1","_waypoint2","_waypoint3","_waypoint4","_patrolAirplanes","_crashType","_chosenTarget","_chosenTargetName","_interceptorPlanes","_markerWaypointOne","_markerWaypointTwo","_markerWaypointThree","_markerWayPointFour","_wayPointOne","_wayPointTwo","_wayPointThree","_wayPointFour","_mk","_pos","_interceptor","_interceptorAircraft"];
+private ["_playerConnected","_cleanupObjects","_rescueChopperRun","_waypoint1","_waypoint2","_waypoint3","_waypoint4","_patrolAirplanes","_crashType","_chosenTarget","_chosenTargetName","_interceptorPlanes","_markerWaypointOne","_markerWaypointTwo","_markerWaypointThree","_markerWayPointFour","_wayPointOne","_wayPointTwo","_wayPointThree","_wayPointFour","_mk","_pos","_interceptor","_interceptorAircraft"];
 
 /************************************************************************************************/
 /** Script Config parameters ********************************************************************/
@@ -21,6 +22,8 @@ private ["_cleanupObjects","_rescueChopperRun","_waypoint1","_waypoint2","_waypo
 _eastSide = createCenter east;
 _westSide = createCenter west;
 _guerSide = createCenter resistance;
+_playerConnected = false;
+
 
 _interceptorPresent = true;		// TRUE - Interceptor launches and shoots down patrol | FALSE - Only patrol plane flies (Either way, land crash will generate rescure craft)
 _AIMoney = 500;					// Max amount of money in AI pockets
@@ -68,7 +71,7 @@ if !("isKnownAccount:FuMS_PersistentVehicle" call ExileServer_system_database_qu
 /** Also shortens mission for testing ***********************************************************/
 /************************************************************************************************/
  
-_debug = false; // Will create a marker that will follow the aircraft
+_debug = true; // Will create a marker that will follow the aircraft
  
 
 
@@ -431,6 +434,20 @@ if 	(_JetsDLC) then
 	_interceptorPlanes append _jetsInterceptorPlanes;
 };
 
+diag_log format["[DAPE] Waiting for players to connect"];
+while {!_playerConnected} do 
+{
+	sleep 30;
+	_allHCs = entities "HeadlessClient_F";
+	_allHPs = allPlayers - _allHCs;
+	if ((count _allHPs) > 0) then
+	{
+		_playerConnected = true;
+	};
+};
+
+diag_log "[DAPE] Player connected, starting patrol";
+
 //Setup Loop logic so it runs this script until the rescue operation can run (Accounts for crashes at sea and runs again if no rescue chopper flies
 while {true} do 
 {
@@ -699,17 +716,7 @@ while {true} do
 		_chopper addEventHandler ["GetIn",{	params ["_vehicle", "_role", "_unit", "_turret"];if (isPlayer _unit) then {_vehicle setVariable ["GONE",true];};}];
 		_chopper addMPEventHandler ["MPKilled",{params ["_vehicle", "_unit"];_vehicle setVariable ["GONE",true];}];
 		
-		if (_lootHeliPersist) then
-		{
-			_chopper setVariable ["ExileIsPersistent", true];
-			_chopper setVariable ["ExileAccessCode", _pinCode];
-			_chopper setVariable ["ExileOwnerUID", "FuMS_PersistentVehicle"];
-			_chopper setVariable ["ExileIsLocked",-1];
-			_chopper lock 0;
-			_chopper call ExileServer_object_vehicle_database_insert;
-			_chopper call ExileServer_object_vehicle_database_update;
-			
-		};	
+
 		
 		
 	 	//diag_log format ["[DAPE] Chopper Pos: %1", getPosASL _chopper];
@@ -840,13 +847,22 @@ while {true} do
 		
 		_titleWin = "CONGRATS!";
 		_messageWin = "The rescue heli has been stolen!";
-
-	
+		
+		
+		
 		if (_lootHeliPersist) then
 		{
+			_chopper setVariable ["ExileIsPersistent", true];
+			_chopper setVariable ["ExileAccessCode", _pinCode];
+			_chopper setVariable ["ExileOwnerUID", "FuMS_PersistentVehicle"];
+			_chopper setVariable ["ExileIsLocked",-1];
+			_chopper lock 0;
+			_chopper call ExileServer_object_vehicle_database_insert;
+			_chopper call ExileServer_object_vehicle_database_update;
 			_messageWin = ["The rescue heli has been stolen! The PIN is ",_pincode] joinString "";
-		};
 		
+		};	
+	
 		diag_log format ["[DAPE] Heli taken, cleaning up mission| Persist:%1 | _messageWin:%2, | _pincode:%3",_lootHeliPersist,_messageWin,_pincode];
 		
 		["toastRequest", ["SuccessTitleAndText", [_titleWin, _messageWin]]] call ExileServer_system_network_send_broadcast;

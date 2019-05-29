@@ -15,6 +15,10 @@ If the patrol craft crashes into water, it is deemed lost and no QRF force is la
 a resuce mission is launched.
 
 -=> Features
+	(Version 1.3)
+	- Helicopter is now only persistent after someone jumps in
+	- Script will now pause until a player joins the server
+	- Debug is now on by default to verify its working
     (Version 1.2)
     - Added option to turn off interceptor
     - Added random amounts of cash (poptabs) to AI
