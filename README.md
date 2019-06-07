@@ -15,6 +15,12 @@ If the patrol craft crashes into water, it is deemed lost and no QRF force is la
 a resuce mission is launched.
 
 -=> Features
+	(Version 1.4)
+	- Added code to reset if rescue heli is shot down
+	- Added option to protect rescue heli until it lands
+	- Added option to run without Exile
+	- Added delay before QRF launches
+	- Minor code corrections
 	(Version 1.3)
 	- Helicopter is now only persistent after someone jumps in
 	- Script will now pause until a player joins the server

@@ -1,13 +1,17 @@
 /** DYNAMIC AIR PATROL EVENT by TheOneWhoKnocks **/
-// Version 1.3
+// Version 1.4
 // Originally inspired by johno's Dynamic Air Patrol script
 // Modified to include make event run until a chopper event runs, fixed several issues, and enhance overall script
 // 4/20/18
+//
 // 5/10/2019 - Significant changes and complete overhaul  First release
 // 5/18/2019 - Added marker cleanup and made it so script repeats after heli is cleared.  Code optimizations
 // 5/21/2019 - Added option to disable interceptor, added money to AI pockets, added more clean up code
 // 5/22/2019 - Added option to make heli persistent
 // 5/29/2019 - Moved code to make heli persistent only after it's been captured
+// 6/6/2019  - Added logic to clean up mission if rescue craft gets destroyed
+// 6/6/2019  - Added ability to protect heli until it lands
+// 6/6/2019  - Added ability to run without Exile server
 
 diag_log "[DAPE] Ambient air patrol engaged";
  
@@ -24,11 +28,13 @@ _westSide = createCenter west;
 _guerSide = createCenter resistance;
 _playerConnected = false;
 
+_usingExile = true;
 
+_delayQRF = 30;					// Time before QRF rescue heli launches after the crash
 _interceptorPresent = true;		// TRUE - Interceptor launches and shoots down patrol | FALSE - Only patrol plane flies (Either way, land crash will generate rescure craft)
 _AIMoney = 500;					// Max amount of money in AI pockets
 _lootHeliPersist = false;		// TRUE - Vehicle is persistant and uses code defined below | FALSE - vehicle is not persistant
-
+_lootHeliProtected = true;		// TRUE - Loot heli cannot be shot down in transit     FALSE - Loot heli is vulnerable while it flies in
 _pincode = floor (random 9999);
 
 switch (true) do
@@ -59,9 +65,14 @@ _cleanupObjects = [];
 
 
 // This code is NECESSARY for spawning persistent vehicles. DO NOT REMOVE THIS CODE UNLESS YOU KNOW WHAT YOU ARE DOING
-if !("isKnownAccount:FuMS_PersistentVehicle" call ExileServer_system_database_query_selectSingleField) then
+// This will also cause AI to now recognize the vehicle and possibly jump in.
+
+if (_usingExile) then
 {
-	"createAccount:FuMS_PersistentVehicle:FuS_PersistentVehicle" call ExileServer_system_database_query_fireAndForget;
+	if !("isKnownAccount:DAPE_PersistentVehicle" call ExileServer_system_database_query_selectSingleField) then
+	{
+		"createAccount:DAPE_PersistentVehicle:DAPE_PersistentVehicle" call ExileServer_system_database_query_fireAndForget;
+	};
 };
 
 
@@ -71,7 +82,7 @@ if !("isKnownAccount:FuMS_PersistentVehicle" call ExileServer_system_database_qu
 /** Also shortens mission for testing ***********************************************************/
 /************************************************************************************************/
  
-_debug = true; // Will create a marker that will follow the aircraft
+_debug = true; // Will create a marker that will follow the aircraft and show other event information 
  
 
 
@@ -86,7 +97,7 @@ _JetsDLC = true; //Set to true to enable Jets content
 /** Random location settings ********************************************************************/
 /************************************************************************************************/
  
-_spawnCenter = [worldSize / 2, worldsize / 2, 1000]; ; //Alternative method
+_spawnCenter = [worldSize / 2, worldsize / 2, 1000]; 
 
 _min = 10; // minimum distance from the center position (Number) in meters
 _max = worldSize * 0.4; // maximum distance from the center position (Number) in meters
@@ -199,7 +210,7 @@ _interceptorExitPos = [_spawnCenter, (worldSize * 0.75), -1, 5, 2] call BIS_fnc_
 
 if (_debug) then
 {
-	private _inExitPoint = createMarker ["intexitpos", _interceptorExitPos	];  //Shows map center
+	private _inExitPoint = createMarker ["intexitpos", _interceptorExitPos	];  
 
 	_inExitPoint setMarkerType "hd_end";
 	_inExitPoint setMarkerText "EP-Int";
@@ -329,12 +340,16 @@ _lootItems =
 		"Rangefinder",
 		"NVGoggles",
 		"NVGoggles_INDEP",
-		"NVGoggles_OPFOR",
-		 
+		"NVGoggles_OPFOR"
+	];
+	
+	
+_exileLootItems = 
+	[
 		"Exile_Item_InstaDoc",
 		"Exile_Item_Vishpirin",
 		"Exile_Item_Bandage"
-	];
+	];	
 	
 // Airplane options
 	
@@ -342,16 +357,6 @@ _patrolAirplanes =
 	[
 		// A-164 Wipeout
 		"B_Plane_CAS_01_dynamicLoadout_F",
-		// AN-2
-
-		"Exile_Plane_AN2_Green",
-		"Exile_Plane_AN2_White",
-		"Exile_Plane_AN2_Stripe",
-		"An2_tk",
-		"An2_af",
-		"An2_a2",	
-		// Cessna 185 Skymaster (armed)
-		"GNT_C185T",
 		
 		// MQ-4A Greyhawk (UAV)
 		"B_UAV_02_dynamicLoadout_F",
@@ -359,12 +364,24 @@ _patrolAirplanes =
 		"I_UAV_02_dynamicLoadout_F"
 	];
 	
+_exilePatrolAirplanes = 
+	[
+		// AN-2
+		"Exile_Plane_AN2_Green",
+		"Exile_Plane_AN2_White",
+		"Exile_Plane_AN2_Stripe",
+		"An2_tk",
+		"An2_af",
+		"An2_a2",	
+		// Cessna 185 Skymaster (armed)
+		"GNT_C185T"
+	];	
+	
 _APEXPatrolAirlanes =
 	[
 	
 		// Ceaser BTT
 		"C_Plane_Civil_01_F",
-		//"Exile_Plane_Ceasar",
 		"C_Plane_Civil_01_racing_F",
 		"I_C_Plane_Civil_01_F",	
 		
@@ -422,8 +439,10 @@ _rescueHelis =
 		"UH1H_Closed_TK"
 		
 	];
+
+// Asset Manager system
 	
-if 	(_APEXDLC) then
+if	(_APEXDLC) then
 {
 	_patrolAirplanes append _APEXPatrolAirlanes;
 };
@@ -434,12 +453,19 @@ if 	(_JetsDLC) then
 	_interceptorPlanes append _jetsInterceptorPlanes;
 };
 
+if 	(_usingExile) then
+{
+	_patrolAirplanes append _exilePatrolAirplanes;
+	_lootItems append _exileLootItems;
+};
+
 diag_log format["[DAPE] Waiting for players to connect"];
 while {!_playerConnected} do 
 {
-	sleep 30;
+	sleep 60;
 	_allHCs = entities "HeadlessClient_F";
 	_allHPs = allPlayers - _allHCs;
+	diag_log format["[DAPE] Waiting... HC's : %1 | Players = %2",_allHCs,_allHPs];
 	if ((count _allHPs) > 0) then
 	{
 		_playerConnected = true;
@@ -448,7 +474,7 @@ while {!_playerConnected} do
 
 diag_log "[DAPE] Player connected, starting patrol";
 
-//Setup Loop logic so it runs this script until the rescue operation can run (Accounts for crashes at sea and runs again if no rescue chopper flies
+//Setup Loop logic so it runs forever (Accounts for crashes at sea and runs again if no rescue chopper flies
 while {true} do 
 {
 	//diag_log "[DAPE} Loop starting";
@@ -480,11 +506,14 @@ while {true} do
 	
 	_titlePatrol = "ALERT";
 	_messagePatrol = format ["A %1 patrol aircraft has been spotted",_chosenTargetName];
-	 
-	["systemChatRequest", [format ["%1: %2",_titlePatrol,_messagePatrol]]] call ExileServer_system_network_send_broadcast;
 
-	["toastRequest", ["InfoTitleAndText", [_titlePatrol, format ["A %1 patrol aircraft has been spotted",_chosenTargetName]]]] call ExileServer_system_network_send_broadcast;
-	 
+	if (_usingExile) then
+	{
+		["systemChatRequest", [format ["%1: %2",_titlePatrol,_messagePatrol]]] call ExileServer_system_network_send_broadcast;
+
+		["toastRequest", ["InfoTitleAndText", [_titlePatrol, format ["A %1 patrol aircraft has been spotted",_chosenTargetName]]]] call ExileServer_system_network_send_broadcast;
+	};	
+	
 	if (_debug) then
 	{
 		[_airCraftLead] spawn
@@ -617,9 +646,12 @@ while {true} do
 	_titlePatrol = "MAYDAY";
 	_messagePatrol = format ["%1 is going down!",_chosenTargetName];
 
-	for "_i" from 1 to 3 do
+	if (_usingExile) then
 	{
-		["systemChatRequest", [format ["%1: %2",_titlePatrol,_messagePatrol]]] call ExileServer_system_network_send_broadcast;
+		for "_i" from 1 to 3 do
+		{
+			["systemChatRequest", [format ["%1: %2",_titlePatrol,_messagePatrol]]] call ExileServer_system_network_send_broadcast;
+		};
 	};
 
 	if (alive _airCraftLead) then
@@ -675,14 +707,19 @@ while {true} do
 	if (!_isWater) then
 	{
 		//diag_log "[DAPE] Aircraft Patrol -- Crash recovey sequence initiated";
+		sleep _delayQRF;
 	 
 		_titleQRF = "WARNING";
 		_messageQRF = "A Quick Reaction Force has been dispatched to secure the crash site.  Do not approach or you will be fired on.";
 		
-		["toastRequest", ["InfoTitleAndText", [_titleQRF, _messageQRF]]] call ExileServer_system_network_send_broadcast;
-	 
-		["systemChatRequest", [format ["%1: %2",_titleQRF,_messageQRF]]] call ExileServer_system_network_send_broadcast;
-			 
+		if (_usingExile) then
+		{
+		
+			["toastRequest", ["InfoTitleAndText", [_titleQRF, _messageQRF]]] call ExileServer_system_network_send_broadcast;
+		 
+			["systemChatRequest", [format ["%1: %2",_titleQRF,_messageQRF]]] call ExileServer_system_network_send_broadcast;
+		};
+		
 		_landPos = _airCraftLead getPos [50, (random 360)];
 
 		{ _x hideObjectGlobal true } foreach (nearestTerrainObjects [_landPos,["TREE", "SMALL TREE", "BUSH"],40]);
@@ -690,7 +727,7 @@ while {true} do
 		_helipad = "Land_HelipadEmpty_F" createVehicle _landPos;
 		sleep 10;
 	 
-		_crash = createVehicle ["test_EmptyObjectForFireBig",_landPos,[], 0, "can_collide"];
+		_crash = createVehicle ["test_EmptyObjectForFireBig",_airCraftLead,[], 0, "can_collide"];
 		_crash setPos [position _airCraftLead select 0,position _airCraftLead select 1, 0.1];
 		_crash setVectorUp surfaceNormal position _crash;
 		_smoke = createVehicle ["test_EmptyObjectForSmoke",position _airCraftLead,[], 0, "can_collide"];
@@ -709,14 +746,18 @@ while {true} do
 		
 		_chopper setFuel (0.75+(random 0.25));
 		_chopper setVariable ["GONE",false];
+		_chopper setVariable ["DESTROYED",false];
 		_chopper setVariable ["ExileMoney",0,true];
 		_chopper setVariable ["ExileIsPersistent", false];
 		_chopper enableRopeAttach false;
 		
 		_chopper addEventHandler ["GetIn",{	params ["_vehicle", "_role", "_unit", "_turret"];if (isPlayer _unit) then {_vehicle setVariable ["GONE",true];};}];
-		_chopper addMPEventHandler ["MPKilled",{params ["_vehicle", "_unit"];_vehicle setVariable ["GONE",true];}];
+		_chopper addMPEventHandler ["MPKilled",{params ["_vehicle", "_unit"];diag_log "[DAPE] Rescue Chopper Destroyed"; _vehicle setVariable ["DESTROYED",true];}];
 		
-
+		if (_lootHeliProtected) then
+		{
+			_chopper allowDamage false;
+		};
 		
 		
 	 	//diag_log format ["[DAPE] Chopper Pos: %1", getPosASL _chopper];
@@ -777,98 +818,114 @@ while {true} do
 		
 		while {(getPos _chopper select 2) >1} do {sleep 10};
 		
+		if (_lootHeliProtected) then
 		{
-			removeBackpackGlobal _x;
-			removeAllWeapons _x;
-			_curWeapon = _lootWeapons call BIS_fnc_selectRandom;
-			[_x,_curWeapon, 5] call BIS_fnc_addWeapon;
-			_x setVariable ["ExileMoney",(floor random _AIMoney),true];
-		} forEach units _rescueCrew;
+			_chopper allowDamage true;
+		};
 		
-		_rescueCrew setCombatMode "RED";
-		_rescueCrew allowFleeing 0;
-		_rescueWP2 = _rescueCrew addWaypoint [_landPos, 10];
-		_rescueWP2 setWaypointType "GETOUT";
-		_rescueWP2 setWaypointBehaviour "SAFE";
-		_rescueWP2 setWaypointspeed "NORMAL";
-	 
-		[_rescueCrew, (getPos _chopper), 50] call bis_fnc_taskPatrol;
-	 
-		// These units come with gear.  If you want custom loot, see next note
-		_aiUnits = ["O_G_Soldier_TL_F", "O_G_medic_F","O_G_Soldier_F","O_G_Soldier_AR_F"];
-	 
-		_HeliAiUnits = [(getPos _chopper), EAST, _aiUnits,[],[],[0.5,0.9],[],[],(random 360)] call BIS_fnc_spawnGroup;
-		_HeliAiUnits deleteGroupWhenEmpty true;
-		//Add waypoint for the AI
-		_HeliCrashGroupLeader = leader _HeliAiUnits;
-		_HeliCrashUnitsGroup = group _HeliCrashGroupLeader;
-		
-	 
-		//  This will remove the gear of the units above and add weapons from the defined loot table above
+		if !(_chopper getVariable "DESTROYED") then
 		{
-			removeBackpackGlobal _x;
-			removeAllWeapons _x;
-			_curWeapon = _lootWeapons call BIS_fnc_selectRandom;
-			[_x,_curWeapon, 5] call BIS_fnc_addWeapon;
-			_x setVariable ["ExileMoney",(floor random _AIMoney),true];
-		} forEach units _HeliAiUnits;
-	 
-		_HeliAIUnits allowFleeing 0;
-	 
-		_HeliCrashUnitsGroup addWaypoint [position _crash, 0];
-		[_HeliCrashUnitsGroup, 0] setWaypointType "GUARD";
-		[_HeliCrashUnitsGroup, 0] setWaypointBehaviour "AWARE";
+			{
+				removeBackpackGlobal _x;
+				removeAllWeapons _x;
+				_curWeapon = _lootWeapons call BIS_fnc_selectRandom;
+				[_x,_curWeapon, 5] call BIS_fnc_addWeapon;
+				_x setVariable ["ExileMoney",(floor random _AIMoney),true];
+			} forEach units _rescueCrew;
+			
+			_rescueCrew setCombatMode "RED";
+			_rescueCrew allowFleeing 0;
+			_rescueWP2 = _rescueCrew addWaypoint [_landPos, 10];
+			_rescueWP2 setWaypointType "GETOUT";
+			_rescueWP2 setWaypointBehaviour "SAFE";
+			_rescueWP2 setWaypointspeed "NORMAL";
+		 
+			[_rescueCrew, (getPos _chopper), 50] call bis_fnc_taskPatrol;
+		 
+			// These units come with gear.  If you want custom loot, see next note
+			_aiUnits = ["O_G_Soldier_TL_F", "O_G_medic_F","O_G_Soldier_F","O_G_Soldier_AR_F"];
+		 
+			_HeliAiUnits = [(getPos _chopper), EAST, _aiUnits,[],[],[0.5,0.9],[],[],(random 360)] call BIS_fnc_spawnGroup;
+			_HeliAiUnits deleteGroupWhenEmpty true;
+			//Add waypoint for the AI
+			_HeliCrashGroupLeader = leader _HeliAiUnits;
+			_HeliCrashUnitsGroup = group _HeliCrashGroupLeader;
+			
+		 
+			//  This will remove the gear of the units above and add weapons from the defined loot table above
+			{
+				removeBackpackGlobal _x;
+				removeAllWeapons _x;
+				_curWeapon = _lootWeapons call BIS_fnc_selectRandom;
+				[_x,_curWeapon, 5] call BIS_fnc_addWeapon;
+				_x setVariable ["ExileMoney",(floor random _AIMoney),true];
+			} forEach units _HeliAiUnits;
+		 
+			_HeliAIUnits allowFleeing 0;
+		 
+			_HeliCrashUnitsGroup addWaypoint [position _crash, 0];
+			[_HeliCrashUnitsGroup, 0] setWaypointType "GUARD";
+			[_HeliCrashUnitsGroup, 0] setWaypointBehaviour "AWARE";
+			
+			_heli_marker = createMarker ["DAPE_Marker", _crash];
+			_heli_marker setMarkerColor "ColorOrange";
+			_heli_marker setMarkerAlpha 1;
+			_heli_marker setMarkerText "Rescue Mission";
+			_heli_marker setMarkerType "o_air";
+			_heli_marker setMarkerBrush "Vertical";
+			_heli_marker setMarkerSize [(1.25), (1.25)];
+			
+			sleep 60;
+			
+			private _objects = 	[
+									["Land_Bodybag_01_black_F",_crash,[0,0,1],[true,false]], 
+									["Land_Bodybag_01_black_F",_crash,[0,0,1],[true,false]]
+								];
+			{
+				_object = (_x select 0) createVehicle ((_x select 1) getPos [5, (random 360)]);
+				_object enableSimulationGlobal ((_x select 3) select 0);
+				_object allowDamage ((_x select 3) select 1);
+				_object setDir (random 360);
+				_object setVectorUp (surfaceNormal (position _object));
+				_cleanupObjects pushBack _object;
+			} forEach _objects;
+		};
 		
-		_heli_marker = createMarker ["DAPE_Marker", _crash];
-		_heli_marker setMarkerColor "ColorOrange";
-		_heli_marker setMarkerAlpha 1;
-		_heli_marker setMarkerText "Rescue Mission";
-		_heli_marker setMarkerType "o_air";
-		_heli_marker setMarkerBrush "Vertical";
-		_heli_marker setMarkerSize [(1.25), (1.25)];
-		
-		sleep 60;
-		
-		private _objects = 	[
-								["Land_Bodybag_01_black_F",_crash,[0,0,1],[true,false]], 
-								["Land_Bodybag_01_black_F",_crash,[0,0,1],[true,false]]
-							];
+		while {(!(_chopper getVariable "GONE") && !(_chopper getVariable "DESTROYED"))} do {sleep 10};
+
+		_titleEnd = "CONGRATS!";
+		_messageEnd = "The rescue heli has been stolen!";
+
+		if (_usingExile) then
 		{
-			_object = (_x select 0) createVehicle ((_x select 1) getPos [5, (random 360)]);
-			_object enableSimulationGlobal ((_x select 3) select 0);
-			_object allowDamage ((_x select 3) select 1);
-			_object setDir (random 360);
-			_object setVectorUp (surfaceNormal (position _object));
-			_cleanupObjects pushBack _object;
-		} forEach _objects;
+			if (_lootHeliPersist) then
+			{
+				_chopper setVariable ["ExileIsPersistent", true];
+				_chopper setVariable ["ExileAccessCode", _pinCode];
+				_chopper setVariable ["ExileOwnerUID", "FuMS_PersistentVehicle"];
+				_chopper setVariable ["ExileIsLocked",-1];
+				_chopper lock 0;
+				_chopper call ExileServer_object_vehicle_database_insert;
+				_chopper call ExileServer_object_vehicle_database_update;
+				_messageEnd = ["The rescue heli has been stolen! The PIN is ",_pincode] joinString "";
+			
+			};	
+		};
 		
-		while {!(_chopper getVariable "GONE")} do {sleep 10};
-		
-		
-		_titleWin = "CONGRATS!";
-		_messageWin = "The rescue heli has been stolen!";
-		
-		
-		
-		if (_lootHeliPersist) then
+		if (_chopper getVariable "DESTROYED") then
 		{
-			_chopper setVariable ["ExileIsPersistent", true];
-			_chopper setVariable ["ExileAccessCode", _pinCode];
-			_chopper setVariable ["ExileOwnerUID", "FuMS_PersistentVehicle"];
-			_chopper setVariable ["ExileIsLocked",-1];
-			_chopper lock 0;
-			_chopper call ExileServer_object_vehicle_database_insert;
-			_chopper call ExileServer_object_vehicle_database_update;
-			_messageWin = ["The rescue heli has been stolen! The PIN is ",_pincode] joinString "";
-		
-		};	
+			_titleEnd = "Womp womp!";
+			_messageEnd = "The rescue heli has been destroyed!";
+		};
 	
-		diag_log format ["[DAPE] Heli taken, cleaning up mission| Persist:%1 | _messageWin:%2, | _pincode:%3",_lootHeliPersist,_messageWin,_pincode];
+		diag_log format ["[DAPE] Heli gone, cleaning up mission| Persist:%1 | _messageEnd:%2, | _pincode:%3",_lootHeliPersist,_messageEnd,_pincode];
 		
-		["toastRequest", ["SuccessTitleAndText", [_titleWin, _messageWin]]] call ExileServer_system_network_send_broadcast;
-	 
-		["systemChatRequest", [format ["%1: %2",_titleWin,_messageWin]]] call ExileServer_system_network_send_broadcast;
-		
+		if (_usingExile) then
+		{
+			["toastRequest", ["SuccessTitleAndText", [_titleEnd, _messageEnd]]] call ExileServer_system_network_send_broadcast;
+		 
+			["systemChatRequest", [format ["%1: %2",_titleEnd,_messageEnd]]] call ExileServer_system_network_send_broadcast;
+		};	
 		
 		deleteMarker "DAPE_Marker";
 		
