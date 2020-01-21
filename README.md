@@ -48,7 +48,7 @@ a resuce mission is launched.
 ```
 ### Installation
 
-1. Cope the folder "DAPE" to the root of your mission folder (ex. Exile.Altis)
+1. Create the folder "addons\DAPE" to the root of your mission folder (ex. Exile.Altis\addons\DAPE)
 2. Edit your init.sqf in the root of your mission folder and add the following line to the bottom:
 
 > [] execVM "addons\DAPE\DAPE.sqf";   // Dynamic Air Patrol Mission
